@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_sort"
+        android:title="정렬 기준 변경"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_delete_all"
+        android:title="전체 기록 삭제"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/context_edit"
+        android:title="기록 수정" />
+
+    <item
+        android:id="@+id/context_delete"
+        android:title="기록 삭제" />
+</menu>
