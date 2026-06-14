@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
@@ -20,11 +21,8 @@ class ListFragment : Fragment() {
 
     private lateinit var dbHelper: DBHelper
     private lateinit var travelAdapter: TravelAdapter
-    private var currentList: List<TravelItem> = emptyList()
 
-    // Activity가 종료되고 다시 돌아왔을 때 리스트를 새롭게 리로드하는 처리기
-    private val addEditLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        // 새로 저장하거나 수정하고 돌아오면 무조건 DB를 다시 읽어와 화면을 갱신합니다.
+    private val addEditLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         loadDataFromDB()
     }
 
@@ -41,74 +39,79 @@ class ListFragment : Fragment() {
 
         dbHelper = DBHelper(requireContext())
 
-        // 1. 어댑터 초기화 및 이벤트 연결
         travelAdapter = TravelAdapter(
             itemList = emptyList(),
             onItemClick = { item ->
-                // [필수 구현] 항목 클릭 시 -> 수정 모드로 데이터를 담아서 인텐트 실행
                 val intent = Intent(requireContext(), AddEditActivity::class.java).apply {
                     putExtra("RECORD_NO", item.no)
                     putExtra("RECORD_PLACE", item.place)
                     putExtra("RECORD_DATE", item.visitDate)
                     putExtra("RECORD_MEMO", item.memo)
                     putExtra("RECORD_PHOTO", item.photoUri)
+                    putExtra("RECORD_GROUP", item.groupName)
                     item.latitude?.let { putExtra("RECORD_LAT", it) }
                     item.longitude?.let { putExtra("RECORD_LNG", it) }
                 }
                 addEditLauncher.launch(intent)
             },
-            onItemLongClick = { item, position ->
-                // 롱클릭 시 어댑터 내부에서 컨텍스트 메뉴가 활성화됩니다.
+            onSelectionChanged = { count ->
+                updateSelectionUI(count)
             }
         )
 
         binding.rvTravelList.adapter = travelAdapter
+        
+        // 중요: RecyclerView를 컨텍스트 메뉴에 등록
+        registerForContextMenu(binding.rvTravelList)
+        
+        binding.btnCancelSelection.setOnClickListener {
+            travelAdapter.clearSelection()
+        }
 
-        // 2. 우측 하단 팅 액션 버튼 클릭 시 -> 새 기록 추가 모드로 인텐트 실행
+        binding.btnGroupAction.setOnClickListener {
+            showGroupRenameDialog()
+        }
+
+        loadDataFromDB()
+
         binding.fabAdd.setOnClickListener {
             val intent = Intent(requireContext(), AddEditActivity::class.java)
             addEditLauncher.launch(intent)
         }
-
-        // 3. 컨텍스트 메뉴를 Fragment에 등록 (이거 누락되면 롱클릭 메뉴 안 뜹니다!)
-        registerForContextMenu(binding.rvTravelList)
-
-        // Initial Data Load
-        loadDataFromDB()
     }
 
-    // 4. [필수 구현] 컨텍스트 메뉴(롱클릭 메뉴) 항목 선택 시 이벤트 처리
     override fun onContextItemSelected(item: MenuItem): Boolean {
-        // 어댑터에서 방금 롱클릭한 아이템의 index 위치를 가져옵니다.
         val position = travelAdapter.longClickedPosition
-        if (position < 0 || position >= currentList.size) return super.onContextItemSelected(item)
-
-        val selectedItem = currentList[position]
+        val selectedItem = travelAdapter.getItemAt(position) ?: return super.onContextItemSelected(item)
 
         return when (item.itemId) {
             R.id.context_edit -> {
-                // 수정 선택 시 클릭과 동일하게 인텐트 전달
                 val intent = Intent(requireContext(), AddEditActivity::class.java).apply {
                     putExtra("RECORD_NO", selectedItem.no)
                     putExtra("RECORD_PLACE", selectedItem.place)
                     putExtra("RECORD_DATE", selectedItem.visitDate)
                     putExtra("RECORD_MEMO", selectedItem.memo)
                     putExtra("RECORD_PHOTO", selectedItem.photoUri)
+                    putExtra("RECORD_GROUP", selectedItem.groupName)
                     selectedItem.latitude?.let { putExtra("RECORD_LAT", it) }
                     selectedItem.longitude?.let { putExtra("RECORD_LNG", it) }
                 }
                 addEditLauncher.launch(intent)
                 true
             }
+            R.id.context_group -> {
+                // [신규] 그룹으로 묶기 선택 시 선택 모드 시작
+                travelAdapter.startSelectionMode(position)
+                true
+            }
             R.id.context_delete -> {
-                // [필수 구현] 삭제 시 경고 AlertDialog 띄우기
                 AlertDialog.Builder(requireContext()).apply {
                     setTitle("기록 삭제")
                     setMessage("${selectedItem.place} 여행 기록을 정말 삭제하시겠습니까?")
                     setPositiveButton("삭제") { _, _ ->
                         dbHelper.deleteRecord(selectedItem.no)
                         Toast.makeText(requireContext(), "기록이 삭제되었습니다.", Toast.LENGTH_SHORT).show()
-                        loadDataFromDB() // 삭제 후 리스트 갱신
+                        loadDataFromDB()
                     }
                     setNegativeButton("취소", null)
                     show()
@@ -119,7 +122,45 @@ class ListFragment : Fragment() {
         }
     }
 
-    // SQLite DB에서 최신 목록 가져오기
+    private fun updateSelectionUI(count: Int) {
+        if (count > 0) {
+            binding.layoutSelectionBar.visibility = View.VISIBLE
+            binding.tvSelectionCount.text = "${count}개 선택됨"
+            binding.fabAdd.hide()
+        } else {
+            binding.layoutSelectionBar.visibility = View.GONE
+            binding.fabAdd.show()
+        }
+    }
+
+    private fun showGroupRenameDialog() {
+        val selectedNos = travelAdapter.getSelectedNos()
+        if (selectedNos.isEmpty()) return
+
+        val editText = EditText(requireContext()).apply {
+            hint = "예: 제주도 가족 여행"
+        }
+
+        AlertDialog.Builder(requireContext()).apply {
+            setTitle("선택한 기록 그룹 묶기")
+            setMessage("새로운 그룹 이름을 입력하세요.")
+            setView(editText)
+            setPositiveButton("확인") { _, _ ->
+                val groupName = editText.text.toString().trim()
+                if (groupName.isNotEmpty()) {
+                    dbHelper.updateGroupBatch(selectedNos, groupName)
+                    Toast.makeText(requireContext(), "그룹으로 묶었습니다.", Toast.LENGTH_SHORT).show()
+                    travelAdapter.clearSelection()
+                    loadDataFromDB()
+                } else {
+                    Toast.makeText(requireContext(), "그룹명을 입력해주세요.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            setNegativeButton("취소", null)
+            show()
+        }
+    }
+
     fun loadDataFromDB() {
         val itemList = mutableListOf<TravelItem>()
         val cursor: Cursor = dbHelper.getAllRecords()
@@ -131,18 +172,17 @@ class ListFragment : Fragment() {
                 val visitDate = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_VISIT_DATE))
                 val memo = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_MEMO))
                 val photoUri = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_PHOTO_URI))
+                val groupName = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_GROUPNAME))
                 
                 val latIndex = cursor.getColumnIndex(DBHelper.COLUMN_LATITUDE)
                 val lngIndex = cursor.getColumnIndex(DBHelper.COLUMN_LONGITUDE)
                 val lat = if (latIndex != -1 && !cursor.isNull(latIndex)) cursor.getDouble(latIndex) else null
                 val lng = if (lngIndex != -1 && !cursor.isNull(lngIndex)) cursor.getDouble(lngIndex) else null
 
-                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng))
+                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng, groupName))
             } while (cursor.moveToNext())
         }
         cursor.close()
-
-        currentList = itemList
 
         if (itemList.isEmpty()) {
             binding.tvEmpty.visibility = View.VISIBLE
@@ -155,7 +195,6 @@ class ListFragment : Fragment() {
         travelAdapter.updateData(itemList)
     }
 
-    // MainActivity의 옵션 메뉴에서 정렬을 바꿀 때 호출되는 함수
     fun toggleSortOrder(descending: Boolean) {
         val cursor: Cursor = dbHelper.getAllRecords()
         val itemList = mutableListOf<TravelItem>()
@@ -167,27 +206,24 @@ class ListFragment : Fragment() {
                 val visitDate = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_VISIT_DATE))
                 val memo = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_MEMO))
                 val photoUri = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_PHOTO_URI))
-                
+                val groupName = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_GROUPNAME))
+
                 val latIndex = cursor.getColumnIndex(DBHelper.COLUMN_LATITUDE)
                 val lngIndex = cursor.getColumnIndex(DBHelper.COLUMN_LONGITUDE)
                 val lat = if (latIndex != -1 && !cursor.isNull(latIndex)) cursor.getDouble(latIndex) else null
                 val lng = if (lngIndex != -1 && !cursor.isNull(lngIndex)) cursor.getDouble(lngIndex) else null
 
-                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng))
+                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng, groupName))
             } while (cursor.moveToNext())
         }
         cursor.close()
 
-        // descending 값에 따라 리스트 정렬 뒤집기
         if (!descending) {
-            // 오래된 순정렬 (no가 작은 순서대로)
             itemList.sortBy { it.no }
         } else {
-            // 최신 순정렬 (no가 큰 순서대로)
             itemList.sortByDescending { it.no }
         }
 
-        currentList = itemList
         travelAdapter.updateData(itemList)
     }
 

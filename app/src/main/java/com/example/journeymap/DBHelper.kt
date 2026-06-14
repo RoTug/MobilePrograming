@@ -10,7 +10,7 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
 
     companion object {
         private const val DATABASE_NAME = "TravelRecord.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
 
         // 테이블 및 컬럼명 정의
         const val TABLE_NAME = "travel_records"
@@ -21,9 +21,9 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
         const val COLUMN_PHOTO_URI = "photo_uri"
         const val COLUMN_LATITUDE = "latitude"
         const val COLUMN_LONGITUDE = "longitude"
+        const val COLUMN_GROUPNAME = "group_name"
     }
 
-    // 1. 테이블 생성 (앱 설치 후 최초 1회 실행)
     override fun onCreate(db: SQLiteDatabase?) {
         val createTableQuery = """
             CREATE TABLE $TABLE_NAME (
@@ -33,29 +33,30 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
                 $COLUMN_MEMO TEXT,
                 $COLUMN_PHOTO_URI TEXT,
                 $COLUMN_LATITUDE REAL,
-                $COLUMN_LONGITUDE REAL
+                $COLUMN_LONGITUDE REAL,
+                $COLUMN_GROUPNAME TEXT DEFAULT '기타'
             )
         """.trimIndent()
         db?.execSQL(createTableQuery)
     }
 
-    // 2. 데이터베이스 버전 업그레이드 시 처리
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
             db?.execSQL("ALTER TABLE $TABLE_NAME ADD COLUMN $COLUMN_LATITUDE REAL")
             db?.execSQL("ALTER TABLE $TABLE_NAME ADD COLUMN $COLUMN_LONGITUDE REAL")
-        } else {
+        }
+        if (oldVersion < 3) {
+            db?.execSQL("ALTER TABLE $TABLE_NAME ADD COLUMN $COLUMN_GROUPNAME TEXT DEFAULT '기타'")
+        }
+        // 버전이 많이 차이날 경우를 대비해 안전하게 처리
+        if (oldVersion >= newVersion) {
             db?.execSQL("DROP TABLE IF EXISTS $TABLE_NAME")
             onCreate(db)
         }
     }
 
-    // ==========================================
-    // CRUD 기능 구현 (필수 요구사항)
-    // ==========================================
-
     // [C] Create - 여행 기록 추가
-    fun insertRecord(place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?): Long {
+    fun insertRecord(place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?, group: String?): Long {
         val db = this.writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_PLACE, place)
@@ -64,21 +65,22 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
             put(COLUMN_PHOTO_URI, photoUri)
             put(COLUMN_LATITUDE, lat)
             put(COLUMN_LONGITUDE, lng)
+            put(COLUMN_GROUPNAME, group ?: "기타")
         }
         val result = db.insert(TABLE_NAME, null, values)
-        db.close() // 사용 후 DB 닫기
-        return result // 성공 시 row ID, 실패 시 -1 반환
+        db.close()
+        return result
     }
 
     // [R] Read - 전체 여행 기록 조회
     fun getAllRecords(): Cursor {
         val db = this.readableDatabase
-        // 최신 방문 날짜순 또는 번호 역순으로 정렬해서 가져옵니다.
-        return db.rawQuery("SELECT * FROM $TABLE_NAME ORDER BY $COLUMN_NO DESC", null)
+        // 그룹별로 먼저 정렬하고 그 안에서 날짜순으로 정렬
+        return db.rawQuery("SELECT * FROM $TABLE_NAME ORDER BY $COLUMN_GROUPNAME ASC, $COLUMN_VISIT_DATE DESC", null)
     }
 
     // [U] Update - 특정 여행 기록 수정
-    fun updateRecord(no: Int, place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?): Int {
+    fun updateRecord(no: Int, place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?, group: String?): Int {
         val db = this.writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_PLACE, place)
@@ -87,25 +89,42 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
             put(COLUMN_PHOTO_URI, photoUri)
             put(COLUMN_LATITUDE, lat)
             put(COLUMN_LONGITUDE, lng)
+            put(COLUMN_GROUPNAME, group ?: "기타")
         }
-        // no가 일치하는 행을 찾아 업데이트
         val result = db.update(TABLE_NAME, values, "$COLUMN_NO = ?", arrayOf(no.toString()))
         db.close()
-        return result // 영향을 받은 행의 개수 반환
+        return result
     }
 
-    // [D] Delete - 특정 여행 기록 삭제
     fun deleteRecord(no: Int): Int {
         val db = this.writableDatabase
         val result = db.delete(TABLE_NAME, "$COLUMN_NO = ?", arrayOf(no.toString()))
         db.close()
-        return result // 삭제된 행의 개수 반환
+        return result
     }
 
-    // [D] Delete - 전체 여행 기록 삭제 (옵션 메뉴용)
     fun deleteAllRecords() {
         val db = this.writableDatabase
         db.delete(TABLE_NAME, null, null)
         db.close()
+    }
+
+    // [U] 여러 기록을 하나의 그룹으로 묶기
+    fun updateGroupBatch(noList: List<Int>, groupName: String) {
+        val db = this.writableDatabase
+        val values = ContentValues().apply {
+            put(COLUMN_GROUPNAME, groupName)
+        }
+        
+        db.beginTransaction()
+        try {
+            for (no in noList) {
+                db.update(TABLE_NAME, values, "$COLUMN_NO = ?", arrayOf(no.toString()))
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+            db.close()
+        }
     }
 }

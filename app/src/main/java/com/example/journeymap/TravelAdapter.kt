@@ -5,24 +5,53 @@ import android.view.ContextMenu
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.journeymap.databinding.ItemTravelBinding
 
 class TravelAdapter(
     private var itemList: List<TravelItem>,
     private val onItemClick: (TravelItem) -> Unit,
-    private val onItemLongClick: (TravelItem, position: Int) -> Unit
-) : RecyclerView.Adapter<TravelAdapter.TravelViewHolder>() {
+    private val onSelectionChanged: (Int) -> Unit
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    // 롱클릭된 아이템의 위치를 기억하기 위한 변수 (컨텍스트 메뉴에서 활용)
+    companion object {
+        private const val VIEW_TYPE_HEADER = 0
+        private const val VIEW_TYPE_ITEM = 1
+    }
+
+    private var displayList: List<Any> = emptyList()
+    var isSelectionMode = false
+    private val selectedNos = mutableSetOf<Int>()
+
+    // 롱클릭된 아이템 위치 저장 (Fragment에서 사용)
     var longClickedPosition: Int = -1
         private set
+
+    init {
+        updateDisplayList()
+    }
+
+    private fun updateDisplayList() {
+        val newList = mutableListOf<Any>()
+        val grouped = itemList.groupBy { it.groupName ?: "기타" }
+        
+        for ((groupName, items) in grouped) {
+            newList.add(groupName)
+            newList.addAll(items)
+        }
+        displayList = newList
+    }
+
+    inner class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tvHeader: TextView = view.findViewById(R.id.tv_header_title)
+    }
 
     inner class TravelViewHolder(private val binding: ItemTravelBinding) :
         RecyclerView.ViewHolder(binding.root), View.OnCreateContextMenuListener {
 
         init {
-            // 컨텍스트 메뉴 리스너 등록
+            // 다시 컨텍스트 메뉴 리스너 등록
             binding.root.setOnCreateContextMenuListener(this)
         }
 
@@ -30,50 +59,106 @@ class TravelAdapter(
             binding.tvPlace.text = item.place
             binding.tvDate.text = item.visitDate
 
-            // 이미지 URI가 있다면 로드, 없으면 기본 이미지
             if (!item.photoUri.isNullOrEmpty()) {
                 binding.ivThumbnail.setImageURI(Uri.parse(item.photoUri))
             } else {
                 binding.ivThumbnail.setImageResource(android.R.drawable.ic_menu_gallery)
             }
 
-            // [필수 구현] 항목 클릭 이벤트 처리
+            binding.cbSelect.visibility = if (isSelectionMode) View.VISIBLE else View.GONE
+            binding.cbSelect.isChecked = selectedNos.contains(item.no)
+
             binding.root.setOnClickListener {
-                onItemClick(item)
+                if (isSelectionMode) {
+                    toggleSelection(item.no)
+                } else {
+                    onItemClick(item)
+                }
             }
 
-            // 롱클릭 시 현재 위치 저장 및 콜백 호출
             binding.root.setOnLongClickListener {
-                longClickedPosition = adapterPosition
-                onItemLongClick(item, adapterPosition)
-                false // false를 반환해야 onCreateContextMenu가 정상 호출됨
+                if (!isSelectionMode) {
+                    longClickedPosition = adapterPosition
+                    false // Fragment의 컨텍스트 메뉴를 띄우기 위해 false 반환
+                } else false
+            }
+            
+            binding.cbSelect.setOnClickListener {
+                toggleSelection(item.no)
             }
         }
 
-        // [필수 구현] 컨텍스트 메뉴 생성
-        override fun onCreateContextMenu(
-            menu: ContextMenu?, v: View?, menuInfo: ContextMenu.ContextMenuInfo?
-        ) {
-            menu?.setHeaderTitle("선택한 여행 기록")
-            menu?.add(0, R.id.context_edit, 0, "기록 수정")
-            menu?.add(0, R.id.context_delete, 1, "기록 삭제")
+        override fun onCreateContextMenu(menu: ContextMenu?, v: View?, menuInfo: ContextMenu.ContextMenuInfo?) {
+            if (!isSelectionMode) {
+                menu?.setHeaderTitle("선택한 여행 기록")
+                menu?.add(0, R.id.context_edit, 0, "기록 수정")
+                menu?.add(0, R.id.context_group, 1, "그룹으로 묶기 (다중 선택)")
+                menu?.add(0, R.id.context_delete, 2, "기록 삭제")
+            }
         }
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TravelViewHolder {
-        val binding = ItemTravelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return TravelViewHolder(binding)
+    private fun toggleSelection(no: Int) {
+        if (selectedNos.contains(no)) {
+            selectedNos.remove(no)
+        } else {
+            selectedNos.add(no)
+        }
+        notifyDataSetChanged()
+        onSelectionChanged(selectedNos.size)
     }
 
-    override fun onBindViewHolder(holder: TravelViewHolder, position: Int) {
-        holder.bind(itemList[position])
+    // 외부에서 특정 아이템을 시작으로 선택 모드를 켜는 함수
+    fun startSelectionMode(position: Int) {
+        val item = getItemAt(position) ?: return
+        isSelectionMode = true
+        selectedNos.add(item.no)
+        notifyDataSetChanged()
+        onSelectionChanged(selectedNos.size)
     }
 
-    override fun getItemCount(): Int = itemList.size
+    fun getSelectedNos(): List<Int> = selectedNos.toList()
 
-    // 데이터가 갱신되었을 때 리스트를 업데이트하는 함수
+    fun clearSelection() {
+        isSelectionMode = false
+        selectedNos.clear()
+        notifyDataSetChanged()
+        onSelectionChanged(0)
+    }
+
+    override fun getItemViewType(position: Int): Int {
+        return if (displayList[position] is String) VIEW_TYPE_HEADER else VIEW_TYPE_ITEM
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        return if (viewType == VIEW_TYPE_HEADER) {
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_travel_header, parent, false)
+            HeaderViewHolder(view)
+        } else {
+            val binding = ItemTravelBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+            TravelViewHolder(binding)
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val item = displayList[position]
+        if (holder is HeaderViewHolder && item is String) {
+            holder.tvHeader.text = item
+        } else if (holder is TravelViewHolder && item is TravelItem) {
+            holder.bind(item)
+        }
+    }
+
+    override fun getItemCount(): Int = displayList.size
+
+    fun getItemAt(position: Int): TravelItem? {
+        if (position < 0 || position >= displayList.size) return null
+        return displayList[position] as? TravelItem
+    }
+
     fun updateData(newList: List<TravelItem>) {
         this.itemList = newList
+        updateDisplayList()
         notifyDataSetChanged()
     }
 }
