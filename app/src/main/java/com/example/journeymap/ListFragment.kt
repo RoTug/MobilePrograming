@@ -52,6 +52,8 @@ class ListFragment : Fragment() {
                     putExtra("RECORD_DATE", item.visitDate)
                     putExtra("RECORD_MEMO", item.memo)
                     putExtra("RECORD_PHOTO", item.photoUri)
+                    item.latitude?.let { putExtra("RECORD_LAT", it) }
+                    item.longitude?.let { putExtra("RECORD_LNG", it) }
                 }
                 addEditLauncher.launch(intent)
             },
@@ -92,6 +94,8 @@ class ListFragment : Fragment() {
                     putExtra("RECORD_DATE", selectedItem.visitDate)
                     putExtra("RECORD_MEMO", selectedItem.memo)
                     putExtra("RECORD_PHOTO", selectedItem.photoUri)
+                    selectedItem.latitude?.let { putExtra("RECORD_LAT", it) }
+                    selectedItem.longitude?.let { putExtra("RECORD_LNG", it) }
                 }
                 addEditLauncher.launch(intent)
                 true
@@ -127,8 +131,13 @@ class ListFragment : Fragment() {
                 val visitDate = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_VISIT_DATE))
                 val memo = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_MEMO))
                 val photoUri = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_PHOTO_URI))
+                
+                val latIndex = cursor.getColumnIndex(DBHelper.COLUMN_LATITUDE)
+                val lngIndex = cursor.getColumnIndex(DBHelper.COLUMN_LONGITUDE)
+                val lat = if (latIndex != -1 && !cursor.isNull(latIndex)) cursor.getDouble(latIndex) else null
+                val lng = if (lngIndex != -1 && !cursor.isNull(lngIndex)) cursor.getDouble(lngIndex) else null
 
-                itemList.add(TravelItem(no, place, visitDate, memo, photoUri))
+                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng))
             } while (cursor.moveToNext())
         }
         cursor.close()
@@ -158,8 +167,13 @@ class ListFragment : Fragment() {
                 val visitDate = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_VISIT_DATE))
                 val memo = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_MEMO))
                 val photoUri = cursor.getString(cursor.getColumnIndexOrThrow(DBHelper.COLUMN_PHOTO_URI))
+                
+                val latIndex = cursor.getColumnIndex(DBHelper.COLUMN_LATITUDE)
+                val lngIndex = cursor.getColumnIndex(DBHelper.COLUMN_LONGITUDE)
+                val lat = if (latIndex != -1 && !cursor.isNull(latIndex)) cursor.getDouble(latIndex) else null
+                val lng = if (lngIndex != -1 && !cursor.isNull(lngIndex)) cursor.getDouble(lngIndex) else null
 
-                itemList.add(TravelItem(no, place, visitDate, memo, photoUri))
+                itemList.add(TravelItem(no, place, visitDate, memo, photoUri, lat, lng))
             } while (cursor.moveToNext())
         }
         cursor.close()

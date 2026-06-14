@@ -8,8 +8,9 @@ import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.exifinterface.media.ExifInterface
 import com.example.journeymap.databinding.ActivityAddEditBinding
-import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.util.Calendar
 
 class AddEditActivity : AppCompatActivity() {
@@ -21,6 +22,9 @@ class AddEditActivity : AppCompatActivity() {
     private var selectedDate: String = ""
     private var isEditMode = false
     private var recordNo = -1
+    
+    private var photoLat: Double? = null
+    private var photoLng: Double? = null
 
     // 갤러리 인텐트 결과 처리기
     private val galleryLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -28,6 +32,7 @@ class AddEditActivity : AppCompatActivity() {
             // 이미지 선택 시 URI 저장 및 화면 표시
             selectedPhotoUri = it.toString()
             binding.ivPhoto.setImageURI(it)
+            extractGpsFromUri(it)
         }
     }
 
@@ -38,6 +43,9 @@ class AddEditActivity : AppCompatActivity() {
             val path = MediaStore.Images.Media.insertImage(contentResolver, it, "Travel_${System.currentTimeMillis()}", null)
             selectedPhotoUri = path
             binding.ivPhoto.setImageBitmap(it)
+            // 카메라 프리뷰는 Exif 정보가 없을 수 있음
+            photoLat = null
+            photoLng = null
         }
     }
 
@@ -82,12 +90,35 @@ class AddEditActivity : AppCompatActivity() {
         }
     }
 
+    private fun extractGpsFromUri(uri: Uri) {
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                val exif = ExifInterface(inputStream)
+                val latLong = exif.latLong
+                if (latLong != null) {
+                    photoLat = latLong[0]
+                    photoLng = latLong[1]
+                    Toast.makeText(this, "사진에서 위치 정보를 추출했습니다.", Toast.LENGTH_SHORT).show()
+                } else {
+                    photoLat = null
+                    photoLng = null
+                }
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+    }
+
     // 수정 모드일 때 기존 데이터를 화면에 로드하는 함수
     private fun loadExistingData() {
         val place = intent.getStringExtra("RECORD_PLACE") ?: ""
         val date = intent.getStringExtra("RECORD_DATE") ?: ""
         val memo = intent.getStringExtra("RECORD_MEMO") ?: ""
         selectedPhotoUri = intent.getStringExtra("RECORD_PHOTO")
+        
+        // 수정 시에는 기존 좌표를 유지하도록 함 (intent에 담겨오지 않았다면 null)
+        photoLat = if (intent.hasExtra("RECORD_LAT")) intent.getDoubleExtra("RECORD_LAT", 0.0) else null
+        photoLng = if (intent.hasExtra("RECORD_LNG")) intent.getDoubleExtra("RECORD_LNG", 0.0) else null
 
         binding.etPlace.setText(place)
         binding.btnDate.text = date
@@ -116,14 +147,14 @@ class AddEditActivity : AppCompatActivity() {
 
         if (isEditMode) {
             // [U] Update 수행
-            val rows = dbHelper.updateRecord(recordNo, place, selectedDate, memo, selectedPhotoUri)
+            val rows = dbHelper.updateRecord(recordNo, place, selectedDate, memo, selectedPhotoUri, photoLat, photoLng)
             if (rows > 0) {
                 Toast.makeText(this, "기록이 수정되었습니다.", Toast.LENGTH_SHORT).show()
                 finish() // 화면 종료
             }
         } else {
             // [C] Create 수행
-            val rowId = dbHelper.insertRecord(place, selectedDate, memo, selectedPhotoUri)
+            val rowId = dbHelper.insertRecord(place, selectedDate, memo, selectedPhotoUri, photoLat, photoLng)
             if (rowId != -1L) {
                 Toast.makeText(this, "새 기록이 저장되었습니다.", Toast.LENGTH_SHORT).show()
                 finish() // 화면 종료

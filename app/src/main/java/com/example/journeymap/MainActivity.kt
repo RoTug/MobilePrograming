@@ -29,10 +29,15 @@ class MainActivity : AppCompatActivity() {
             loadFragment(ListFragment(), false)
         }
 
+        // 하단 네비게이션 바 클릭 이벤트 처리 (MapFragment 분기 추가 완료)
         binding.bottomNavigation.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_list -> {
                     loadFragment(ListFragment(), true)
+                    true
+                }
+                R.id.nav_map -> { // 👈 새로 분리한 여행 지도 탭 연동
+                    loadFragment(MapFragment(), true)
                     true
                 }
                 R.id.nav_info -> {
@@ -52,7 +57,7 @@ class MainActivity : AppCompatActivity() {
 
     // [필수 요구사항] 2. 옵션 메뉴 아이템 클릭 이벤트 처리
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // 현재 화면에 떠있는 프래그먼트가 ListFragment인지 확인
+        // 현재 화면에 떠있는 프래그먼트가 어떤 것인지 확인
         val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
 
         return when (item.itemId) {
@@ -61,8 +66,7 @@ class MainActivity : AppCompatActivity() {
                     // 정렬 상태 반전
                     isSortDesc = !isSortDesc
 
-                    // DBHelper의 정렬 쿼리를 바꾸거나, 가져온 리스트를 반대로 뒤집어서 전달
-                    // 여기서는 간단하게 ListFragment 내부의 리스트 정렬을 변경하도록 처리해보겠습니다.
+                    // ListFragment 내부의 리스트 정렬 변경 함수 호출
                     currentFragment.toggleSortOrder(isSortDesc)
 
                     val msg = if (isSortDesc) "최신순으로 정렬되었습니다." else "오래된순으로 정렬되었습니다."
@@ -81,9 +85,12 @@ class MainActivity : AppCompatActivity() {
                         dbHelper.deleteAllRecords()
                         Toast.makeText(this@MainActivity, "모든 기록이 삭제되었습니다.", Toast.LENGTH_SHORT).show()
 
-                        // 현재 화면이 ListFragment라면 화면 리프레시
+                        // 현재 화면에 따라 UI 동기화 리프레시 처리
                         if (currentFragment is ListFragment) {
                             currentFragment.loadDataFromDB()
+                        } else if (currentFragment is MapFragment) {
+                            // 지도 화면에 떠있을 때도 전체 삭제 시 마커를 비워주도록 리로드 호출
+                            currentFragment.onResume()
                         }
                     }
                     setNegativeButton("취소", null)

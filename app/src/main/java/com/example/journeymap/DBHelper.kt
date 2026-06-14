@@ -10,7 +10,7 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
 
     companion object {
         private const val DATABASE_NAME = "TravelRecord.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
 
         // 테이블 및 컬럼명 정의
         const val TABLE_NAME = "travel_records"
@@ -19,6 +19,8 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
         const val COLUMN_VISIT_DATE = "visit_date"
         const val COLUMN_MEMO = "memo"
         const val COLUMN_PHOTO_URI = "photo_uri"
+        const val COLUMN_LATITUDE = "latitude"
+        const val COLUMN_LONGITUDE = "longitude"
     }
 
     // 1. 테이블 생성 (앱 설치 후 최초 1회 실행)
@@ -29,7 +31,9 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
                 $COLUMN_PLACE TEXT NOT NULL,
                 $COLUMN_VISIT_DATE TEXT NOT NULL,
                 $COLUMN_MEMO TEXT,
-                $COLUMN_PHOTO_URI TEXT
+                $COLUMN_PHOTO_URI TEXT,
+                $COLUMN_LATITUDE REAL,
+                $COLUMN_LONGITUDE REAL
             )
         """.trimIndent()
         db?.execSQL(createTableQuery)
@@ -37,8 +41,13 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
 
     // 2. 데이터베이스 버전 업그레이드 시 처리
     override fun onUpgrade(db: SQLiteDatabase?, oldVersion: Int, newVersion: Int) {
-        db?.execSQL("DROP TABLE IF EXISTS $TABLE_NAME")
-        onCreate(db)
+        if (oldVersion < 2) {
+            db?.execSQL("ALTER TABLE $TABLE_NAME ADD COLUMN $COLUMN_LATITUDE REAL")
+            db?.execSQL("ALTER TABLE $TABLE_NAME ADD COLUMN $COLUMN_LONGITUDE REAL")
+        } else {
+            db?.execSQL("DROP TABLE IF EXISTS $TABLE_NAME")
+            onCreate(db)
+        }
     }
 
     // ==========================================
@@ -46,13 +55,15 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
     // ==========================================
 
     // [C] Create - 여행 기록 추가
-    fun insertRecord(place: String, visitDate: String, memo: String, photoUri: String?): Long {
+    fun insertRecord(place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?): Long {
         val db = this.writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_PLACE, place)
             put(COLUMN_VISIT_DATE, visitDate)
             put(COLUMN_MEMO, memo)
             put(COLUMN_PHOTO_URI, photoUri)
+            put(COLUMN_LATITUDE, lat)
+            put(COLUMN_LONGITUDE, lng)
         }
         val result = db.insert(TABLE_NAME, null, values)
         db.close() // 사용 후 DB 닫기
@@ -67,13 +78,15 @@ class DBHelper(context: Context) : SQLiteOpenHelper(context, DATABASE_NAME, null
     }
 
     // [U] Update - 특정 여행 기록 수정
-    fun updateRecord(no: Int, place: String, visitDate: String, memo: String, photoUri: String?): Int {
+    fun updateRecord(no: Int, place: String, visitDate: String, memo: String, photoUri: String?, lat: Double?, lng: Double?): Int {
         val db = this.writableDatabase
         val values = ContentValues().apply {
             put(COLUMN_PLACE, place)
             put(COLUMN_VISIT_DATE, visitDate)
             put(COLUMN_MEMO, memo)
             put(COLUMN_PHOTO_URI, photoUri)
+            put(COLUMN_LATITUDE, lat)
+            put(COLUMN_LONGITUDE, lng)
         }
         // no가 일치하는 행을 찾아 업데이트
         val result = db.update(TABLE_NAME, values, "$COLUMN_NO = ?", arrayOf(no.toString()))
