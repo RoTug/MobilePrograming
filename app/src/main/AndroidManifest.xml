@@ -31,7 +31,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".AddEditActivity" android:exported="false" />
-        <activity android:name=".LocationPickerActivity" android:exported="false" />
+       <activity android:name=".LocationPickerActivity" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

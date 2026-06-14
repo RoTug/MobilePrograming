@@ -53,6 +53,10 @@ class MainActivity : AppCompatActivity() {
                     loadFragment(ListFragment(), true)
                     true
                 }
+                R.id.nav_calendar -> { // [추가] 캘린더 탭
+                    loadFragment(CalendarFragment(), true)
+                    true
+                }
                 R.id.nav_map -> {
                     loadFragment(MapFragment(), true)
                     true
