@@ -5,6 +5,7 @@ import android.view.ContextMenu
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.journeymap.databinding.ItemTravelBinding
@@ -24,7 +25,9 @@ class TravelAdapter(
     var isSelectionMode = false
     private val selectedNos = mutableSetOf<Int>()
 
-    // 롱클릭된 아이템 위치 저장 (Fragment에서 사용)
+    // 열려있는 폴더(그룹) 이름을 저장
+    private val expandedGroups = mutableSetOf<String>()
+
     var longClickedPosition: Int = -1
         private set
 
@@ -34,24 +37,59 @@ class TravelAdapter(
 
     private fun updateDisplayList() {
         val newList = mutableListOf<Any>()
+        
+        // 1. 그룹이 있는 항목들과 없는 항목들을 분리
         val grouped = itemList.groupBy { it.groupName ?: "기타" }
         
+        // 2. 그룹이 없는 항목("기타")들을 리스트 최상단에 추가 (헤더 없이)
+        grouped["기타"]?.let { ungroupedItems ->
+            newList.addAll(ungroupedItems)
+        }
+        
+        // 3. 이름이 있는 그룹들을 폴더 형태로 추가
         for ((groupName, items) in grouped) {
-            newList.add(groupName)
-            newList.addAll(items)
+            if (groupName == "기타") continue
+            
+            newList.add(GroupHeader(groupName, items.size))
+            
+            // 폴더가 열려있을 때만 하위 아이템 추가
+            if (expandedGroups.contains(groupName)) {
+                newList.addAll(items)
+            }
         }
         displayList = newList
     }
 
+    data class GroupHeader(val name: String, val count: Int)
+
     inner class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvHeader: TextView = view.findViewById(R.id.tv_header_title)
+        val tvCount: TextView = view.findViewById(R.id.tv_item_count)
+        val ivArrow: ImageView = view.findViewById(R.id.iv_expand_arrow)
+
+        fun bind(header: GroupHeader) {
+            tvHeader.text = header.name
+            tvCount.text = "${header.count}개의 기록"
+            
+            val isExpanded = expandedGroups.contains(header.name)
+            ivArrow.rotation = if (isExpanded) 180f else 0f
+
+            itemView.setOnClickListener {
+                if (isExpanded) {
+                    expandedGroups.remove(header.name)
+                } else {
+                    expandedGroups.add(header.name)
+                }
+                updateDisplayList()
+                notifyDataSetChanged()
+            }
+        }
     }
 
     inner class TravelViewHolder(private val binding: ItemTravelBinding) :
         RecyclerView.ViewHolder(binding.root), View.OnCreateContextMenuListener {
 
         init {
-            // 다시 컨텍스트 메뉴 리스너 등록
             binding.root.setOnCreateContextMenuListener(this)
         }
 
@@ -79,7 +117,7 @@ class TravelAdapter(
             binding.root.setOnLongClickListener {
                 if (!isSelectionMode) {
                     longClickedPosition = adapterPosition
-                    false // Fragment의 컨텍스트 메뉴를 띄우기 위해 false 반환
+                    false
                 } else false
             }
             
@@ -108,11 +146,17 @@ class TravelAdapter(
         onSelectionChanged(selectedNos.size)
     }
 
-    // 외부에서 특정 아이템을 시작으로 선택 모드를 켜는 함수
     fun startSelectionMode(position: Int) {
         val item = getItemAt(position) ?: return
         isSelectionMode = true
         selectedNos.add(item.no)
+        
+        val group = item.groupName ?: "기타"
+        if (group != "기타") {
+            expandedGroups.add(group)
+        }
+
+        updateDisplayList()
         notifyDataSetChanged()
         onSelectionChanged(selectedNos.size)
     }
@@ -127,7 +171,7 @@ class TravelAdapter(
     }
 
     override fun getItemViewType(position: Int): Int {
-        return if (displayList[position] is String) VIEW_TYPE_HEADER else VIEW_TYPE_ITEM
+        return if (displayList[position] is GroupHeader) VIEW_TYPE_HEADER else VIEW_TYPE_ITEM
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -142,8 +186,8 @@ class TravelAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         val item = displayList[position]
-        if (holder is HeaderViewHolder && item is String) {
-            holder.tvHeader.text = item
+        if (holder is HeaderViewHolder && item is GroupHeader) {
+            holder.bind(item)
         } else if (holder is TravelViewHolder && item is TravelItem) {
             holder.bind(item)
         }
